@@ -9,64 +9,82 @@
 #include <sys/time.h>
 #include <arpa/inet.h> //inet_addr
 #include"SBCP.h"
+#define HEADLEN 4
 
 int getServerMessage(int sockfd){
     
-    Msg serverMessage;
+    Header head;
+    char* payload;
     int status = 0;
-    long nbytes = 0;
+    int nbytes = 0;
     
     //printf("GET SERVER MESSAGE \n");
-    nbytes=read(sockfd,(Msg *) &serverMessage,sizeof(serverMessage));
-    
-    if(serverMessage.header.type == 3){
-        if(serverMessage.attribute.type == 4){
-            printf("Forwarded Message from user %s:", serverMessage.attribute.payload);
-        }
-        if (serverMessage.attribute.type == 2){
-            printf("%s \n", serverMessage.attribute.payload);
-        }
-        if (serverMessage.attribute.type == 3){
-            printf("%s users are now online. \n", serverMessage.attribute.payload);
-        }
-        status=0;
+    if(read(sockfd,(Header *) &head, HEADLEN) == -1) {
+        puts("read error!\n");
+        return -2;
     }
-    
-    if(serverMessage.header.type==5){
-        if(serverMessage.attribute.type==1){
-            printf("NAK Message from Server: %s \n",serverMessage.attribute.payload);
-        }
-        status=1;
+    char type = head.type;
+    int msgLen = head.length;
+
+    switch(type) {
+        case '3': //FWD
+                    break;
+        case '5': //NAK
+                    printf("Sorry.\n");
+                    status = 1;
+                    break;
+        case '6': //OFFLINE
+                    printf("Someone is OFFLINE: ");
+                    break;
+        case '7': //ACK
+                    printf("Welcome to chat room!\n");
+                    break;
+        case '8': //ONLINE
+                    printf("Someone is ONLINE: ");
+                    break;
+        case '9': //IDLE
+                    printf("Someone has been idle: ");
+                    break;
+        default: return -1;
     }
-    
-    if(serverMessage.header.type==6){
-        if(serverMessage.attribute.type==2){
-            printf("%s is now OFFLINE \n",serverMessage.attribute.payload);
-        }
-        status=0;
+
+    if (msgLen == HEADLEN) {
+        return status;
     }
-    
-    if(serverMessage.header.type==7){
-        if(serverMessage.attribute.type==4){
-            printf("ACK Message from Server is %s",serverMessage.attribute.payload);
-        }
-        status=0;
+
+    payload = malloc(msgLen - HEADLEN);
+    if(read(sockfd, payload, msgLen - HEADLEN) == -1) {
+        puts("read error!\n");
+        return -2;
     }
-    
-    if(serverMessage.header.type==8){
-        if(serverMessage.attribute.type==2){
-            printf("%s is now ONLINE",serverMessage.attribute.payload);
+    int p = 0;
+    while(p < msgLen) {
+        Attribute attr;
+        memcpy((Attribute*)&attr, payload + p, HEADLEN);
+        int subtype = attr.type;
+        int subLen = attr.length;
+        char* content = malloc(subLen - HEADLEN + 1);
+        memcpy(content, payload + p + HEADLEN, subLen - HEADLEN);
+        p += subLen;
+        content[subLen - HEADLEN] = '\0';
+        switch(subtype) {
+            case 1:
+                    printf("Failed for reason: %s\n", content);
+                    break;
+            case 2:
+                    printf("%s\n", content);
+                    break;
+            case 3:
+                    printf("Number of users online: %s\n", content);
+                    break;
+            case 4:
+                    printf("-> %s\n", content);
+                    break;
+            default:
+                    break;
         }
-        status=0;
-    }
-    
-    if(serverMessage.header.type==9){
-        if(serverMessage.attribute.type==2){
-            printf("%s is now IDLE",serverMessage.attribute.payload);
-        }
-        status=0;
-    }
-    
+    }   
+    free(payload);
     return status;
 }
 
@@ -74,20 +92,23 @@ int getServerMessage(int sockfd){
 void sendJoin(int sockfd, char *arg[]){
     
     Header header;
-    Attribute attrib;
-    Msg msg;
+    Attribute attr;
+
     int status = 0;
-    
+    int nameLen = strlen(arg[1]);
     header.vrsn = '3';
     header.type = '2';//JOIN
 
-    attrib.type = 2;//Username
-    attrib.length = (int)strlen(arg[1]) + 1;
-    strcpy(attrib.payload,arg[1]);
-    msg.header = header;
-    msg.attribute = attrib;
+    attr.type = 2;//Username
+    attr.length = nameLen + HEADLEN + 1;   //1 -> '\0'
+    header.length = HEADLEN + attr.length;
+    char* buf = malloc(header.length);
+    memcpy(buf, (void*)&header, HEADLEN);
+    memcpy(buf + HEADLEN, (void*)&attr, HEADLEN);
+    memcpy(buf + HEADLEN + HEADLEN, (void*) arg[1], nameLen);
+    buf[header.length - 1] = '\0';
     
-    write(sockfd,(void *) &msg,sizeof(msg));
+    write(sockfd,(void *) buf, header.length);
     
     // Sleep to allow Server to reply
     sleep(1);
@@ -95,15 +116,18 @@ void sendJoin(int sockfd, char *arg[]){
     if(status == 1){
         close(sockfd);
     }
+    free(buf);
 }
 
 //Accept user input, and send it to server for broadcasting
 void chat(int connectionDesc){
     
-    Msg msg;
+    Header head;
     Attribute clientAttribute;
     
-    long nread = 0;
+    head.vrsn = '3';
+    head.type = '4';
+    int nread = 0;
     char temp[512];
 
     struct timeval tv;
@@ -115,15 +139,19 @@ void chat(int connectionDesc){
     // don't care about writefds and exceptfds:
     select(STDIN_FILENO+1, &readfds, NULL, NULL, &tv);
     if (FD_ISSET(STDIN_FILENO, &readfds)){
-        nread = read(STDIN_FILENO, temp, sizeof(temp));
+        nread = (int)read(STDIN_FILENO, temp, sizeof(temp));
         if(nread > 0){
-            temp[nread] = '\0';
+            temp[nread++] = '\0';
         }
         
         clientAttribute.type = 4;
-        strcpy(clientAttribute.payload,temp);
-        msg.attribute = clientAttribute;
-        write(connectionDesc,(void *) &msg,sizeof(msg));
+        clientAttribute.length = HEADLEN + nread;
+        head.length = HEADLEN + clientAttribute.length;
+        char* buf = malloc(head.length);
+        memcpy(buf, (Header*)&head, HEADLEN);
+        memcpy(buf + HEADLEN, (Attribute*)&clientAttribute, HEADLEN);
+        memcpy(buf + HEADLEN + HEADLEN, temp, nread);
+        write(connectionDesc,(void *) buf, head.length);
     } else {
         printf("Timed out.\n");
     }
