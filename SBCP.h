@@ -31,16 +31,16 @@
 //SBCP Header
 typedef struct HeaderSBCP
 {
-    unsigned char vrsn : 9;
-    unsigned char type : 7;
-    int length;
+    u_char vrsn;
+    u_char type;
+    uint16_t length;
 }Header;
 
 //SBCP Attribute
 typedef struct AttributeSBCP
 {
-    int type;
-    int length;
+    uint16_t type;
+    uint16_t length;
 }Attribute;
 
 //SBCP Message
@@ -49,5 +49,6 @@ typedef struct MessageSBCP
     Header header;
     unsigned char* payload;
 }Msg;
+
 
 #endif /* SBCP_h */

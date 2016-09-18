@@ -88,27 +88,33 @@ int getServerMessage(int sockfd){
     return status;
 }
 
-//Send a JOIN Message to server when connected to server
-void sendJoin(int sockfd, char *arg[]){
+void sendJoin(int sockfd, char *user){
     
-    Header header;
-    Attribute attr;
-
+    Header *header;
+    Attribute *attr;
+    
     int status = 0;
-    int nameLen = strlen(arg[1]);
-    header.vrsn = '3';
-    header.type = '2';//JOIN
-
-    attr.type = 2;//Username
-    attr.length = nameLen + HEADLEN + 1;   //1 -> '\0'
-    header.length = HEADLEN + attr.length;
-    char* buf = malloc(header.length);
-    memcpy(buf, (void*)&header, HEADLEN);
-    memcpy(buf + HEADLEN, (void*)&attr, HEADLEN);
-    memcpy(buf + HEADLEN + HEADLEN, (void*) arg[1], nameLen);
-    buf[header.length - 1] = '\0';
+    int nameLen = (int)strlen(user) + 1;
+    int version = 3;
+    int sbcp_type = JOIN;
     
-    write(sockfd,(void *) buf, header.length);
+    header = malloc(HEADLEN);
+    header->vrsn = version>>1;
+    header->type = (((version&0x1)<<7)|(sbcp_type&0x7f));
+    
+    attr = malloc(HEADLEN);
+    attr->type = USERNAME;//Username
+    attr->length = nameLen + HEADLEN;
+    header->length = HEADLEN + attr->length;
+    
+    void* buf = malloc(header->length);
+    memcpy(buf, header, HEADLEN);
+    void* tmp = buf + HEADLEN;
+    memcpy(tmp, attr, HEADLEN);
+    tmp = tmp + HEADLEN;
+    memcpy(tmp, (void*) user, nameLen);
+
+    write(sockfd,(void *) buf, header->length);
     
     // Sleep to allow Server to reply
     sleep(1);
@@ -117,22 +123,33 @@ void sendJoin(int sockfd, char *arg[]){
         close(sockfd);
     }
     free(buf);
+    free(header);
+    free(attr);
 }
+
+
 
 //Accept user input, and send it to server for broadcasting
 void chat(int connectionDesc){
     
-    Header head;
-    Attribute clientAttribute;
-    
-    head.vrsn = '3';
-    head.type = '4';
+    Header *header;
+    Attribute *attr;
     int nread = 0;
+    int version = 3;
+    int sbcp_type = SEND;
+    
+    header = malloc(HEADLEN);
+    header->vrsn = version>>1;
+    header->type = (((version&0x1)<<7)|(sbcp_type&0x7f));
+    
+    attr = malloc(HEADLEN);
+    attr->type = MESSAGE;
+    
     char temp[512];
-
+    
     struct timeval tv;
     fd_set readfds;
-    tv.tv_sec = 2;
+    tv.tv_sec = 10;
     tv.tv_usec = 0;
     FD_ZERO(&readfds);
     FD_SET(STDIN_FILENO, &readfds);
@@ -144,14 +161,17 @@ void chat(int connectionDesc){
             temp[nread++] = '\0';
         }
         
-        clientAttribute.type = 4;
-        clientAttribute.length = HEADLEN + nread;
-        head.length = HEADLEN + clientAttribute.length;
-        char* buf = malloc(head.length);
-        memcpy(buf, (Header*)&head, HEADLEN);
-        memcpy(buf + HEADLEN, (Attribute*)&clientAttribute, HEADLEN);
-        memcpy(buf + HEADLEN + HEADLEN, temp, nread);
-        write(connectionDesc,(void *) buf, head.length);
+        attr->length = HEADLEN + nread;
+        header->length = HEADLEN + attr->length;
+        char* buf = malloc(header->length);
+        
+        memcpy(buf, header, HEADLEN);
+        void* tmp = buf + HEADLEN;
+        memcpy(tmp, attr, HEADLEN);
+        tmp = tmp + HEADLEN;
+        memcpy(tmp, temp, nread);
+        
+        write(connectionDesc,(void *) buf, header->length);
     } else {
         printf("Timed out.\n");
     }
@@ -187,7 +207,7 @@ int main(int argc , char *argv[]){
             exit(0);
         } else {
             puts("Connected\n");
-            sendJoin(socket_desc, argv);
+            sendJoin(socket_desc, argv[1]);
             FD_SET(socket_desc, &master);
             FD_SET(STDIN_FILENO, &master);
             
