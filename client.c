@@ -10,48 +10,48 @@
 #include <arpa/inet.h> //inet_addr
 #include"SBCP.h"
 #define HEADLEN 4
+#define MAXLINE 4096
 
 int getServerMessage(int sockfd){
     
     Header head;
     char* payload;
     int status = 0;
-    int nbytes = 0;
     
     //printf("GET SERVER MESSAGE \n");
     if(read(sockfd,(Header *) &head, HEADLEN) == -1) {
         puts("read error!\n");
         return -2;
     }
-    char type = head.type;
+    int type = ((int)head.type & 0x7f);
     int msgLen = head.length;
-
+    
     switch(type) {
-        case '3': //FWD
-                    break;
-        case '5': //NAK
-                    printf("Sorry.\n");
-                    status = 1;
-                    break;
-        case '6': //OFFLINE
-                    printf("Someone is OFFLINE: ");
-                    break;
-        case '7': //ACK
-                    printf("Welcome to chat room!\n");
-                    break;
-        case '8': //ONLINE
-                    printf("Someone is ONLINE: ");
-                    break;
-        case '9': //IDLE
-                    printf("Someone has been idle: ");
-                    break;
+        case 3: //FWD
+            break;
+        case 5: //NAK
+            printf("Sorry.\n");
+            status = 1;
+            break;
+        case 6: //OFFLINE
+            printf("Someone is OFFLINE: ");
+            break;
+        case 7: //ACK
+            printf("Welcome to chat room!\n");
+            break;
+        case 8: //ONLINE
+            printf("Someone is ONLINE: ");
+            break;
+        case 9: //IDLE
+            printf("Someone has been idle: ");
+            break;
         default: return -1;
     }
-
+    
     if (msgLen == HEADLEN) {
         return status;
     }
-
+    
     payload = malloc(msgLen - HEADLEN);
     if(read(sockfd, payload, msgLen - HEADLEN) == -1) {
         puts("read error!\n");
@@ -69,21 +69,22 @@ int getServerMessage(int sockfd){
         content[subLen - HEADLEN] = '\0';
         switch(subtype) {
             case 1:
-                    printf("Failed for reason: %s\n", content);
-                    break;
+                printf("Failed for reason: %s\n", content);
+                break;
             case 2:
-                    printf("%s\n", content);
-                    break;
+                printf("%s\n", content);
+                break;
             case 3:
-                    printf("Number of users online: %s\n", content);
-                    break;
+                printf("Number of users online: %s\n", content);
+                break;
             case 4:
-                    printf("-> %s\n", content);
-                    break;
+                printf("-> %s\n", content);
+                break;
             default:
-                    break;
+                break;
         }
-    }   
+        free(content);
+    }
     free(payload);
     return status;
 }
@@ -127,10 +128,36 @@ void sendJoin(int sockfd, char *user){
     free(attr);
 }
 
-
+void sendIdle(int sockfd) {
+    Header *header;
+    Attribute *attr;
+    
+    int version = 3;
+    int sbcp_type = IDLE;
+    
+    header = malloc(HEADLEN);
+    header->vrsn = version>>1;
+    header->type = (((version&0x1)<<7)|(sbcp_type&0x7f));
+    
+    attr = malloc(HEADLEN);
+    attr->type = 0;//Username
+    attr->length = HEADLEN;
+    header->length = HEADLEN + attr->length;
+    
+    void* buf = malloc(header->length);
+    memcpy(buf, header, HEADLEN);
+    void* tmp = buf + HEADLEN;
+    memcpy(tmp, attr, HEADLEN);
+    
+    write(sockfd,(void *) buf, header->length);
+    
+    free(buf);
+    free(header);
+    free(attr);
+}
 
 //Accept user input, and send it to server for broadcasting
-void chat(int connectionDesc){
+void chat(FILE *fp, int connectionDesc){
     
     Header *header;
     Attribute *attr;
@@ -148,83 +175,78 @@ void chat(int connectionDesc){
     char temp[512];
     
     struct timeval tv;
-    fd_set readfds;
     tv.tv_sec = 10;
     tv.tv_usec = 0;
-    FD_ZERO(&readfds);
-    FD_SET(STDIN_FILENO, &readfds);
-    // don't care about writefds and exceptfds:
-    select(STDIN_FILENO+1, &readfds, NULL, NULL, &tv);
-    if (FD_ISSET(STDIN_FILENO, &readfds)){
-        nread = (int)read(STDIN_FILENO, temp, sizeof(temp));
-        if(nread > 0){
-            temp[nread++] = '\0';
+    
+    int maxfd, stdineof;
+    fd_set rset;
+    FD_ZERO(&rset);
+    stdineof = 0;
+
+    for (;;) {
+        if (stdineof == 0) FD_SET(fileno(fp), &rset);
+        FD_SET(connectionDesc, &rset);
+        maxfd = (fileno(fp) > connectionDesc ? fileno(fp) : connectionDesc) + 1;
+        select(maxfd, &rset, NULL, NULL, &tv);
+        
+        if (FD_ISSET(connectionDesc, &rset)) {
+            getServerMessage(connectionDesc);
         }
         
-        attr->length = HEADLEN + nread;
-        header->length = HEADLEN + attr->length;
-        char* buf = malloc(header->length);
-        
-        memcpy(buf, header, HEADLEN);
-        void* tmp = buf + HEADLEN;
-        memcpy(tmp, attr, HEADLEN);
-        tmp = tmp + HEADLEN;
-        memcpy(tmp, temp, nread);
-        
-        write(connectionDesc,(void *) buf, header->length);
-    } else {
-        printf("Timed out.\n");
+        if (FD_ISSET(fileno(fp), &rset)) {
+            if ((nread = (int)read(fileno(fp), temp, MAXLINE)) == 0) {
+                stdineof = 1;
+                shutdown(connectionDesc, SHUT_WR);
+                FD_CLR(fileno(fp), &rset);
+                continue;
+            }
+            attr->length = HEADLEN + nread;
+            header->length = HEADLEN + attr->length;
+            char* buf = malloc(header->length);
+            
+            memcpy(buf, header, HEADLEN);
+            void* tmp = buf + HEADLEN;
+            memcpy(tmp, attr, HEADLEN);
+            tmp = tmp + HEADLEN;
+            memcpy(tmp, temp, nread + 1);
+            
+            write(connectionDesc,(void *) buf, header->length);
+            free(buf);
+        } else {
+            sendIdle(connectionDesc);
+            printf("Timed out.\n");
+        }
     }
+    free(header);
+    free(attr);
 }
 
 int main(int argc , char *argv[]){
     if (argc == 4){
         int socket_desc;
         struct sockaddr_in server;
-
-        fd_set master;
-        fd_set read_fds;
-        FD_ZERO(&read_fds);
-        FD_ZERO(&master);
     
+    
+        memset(&server, 0, sizeof(server));
+        server.sin_addr.s_addr = inet_addr(addr);
+        server.sin_family = AF_INET;
+        server.sin_port = htons(atoi(port));
+        
         //Create socket
         socket_desc = socket(AF_INET , SOCK_STREAM , 0);
         if (socket_desc == -1){
             printf("Could not create socket");
             exit(0);
-        } else {
-            printf("Socket successfully created.\n");
         }
-    
-        bzero(&server,sizeof(server));
-        server.sin_addr.s_addr = inet_addr(argv[2]);
-        server.sin_family = AF_INET;
-        server.sin_port = htons(atoi(argv[3]));
-    
+        
         //Connect to remote server
         if (connect(socket_desc , (struct sockaddr *)&server , sizeof(server)) < 0){
             puts("connect error");
             exit(0);
         } else {
             puts("Connected\n");
-            sendJoin(socket_desc, argv[1]);
-            FD_SET(socket_desc, &master);
-            FD_SET(STDIN_FILENO, &master);
-            
-            for (; ; ) {
-                read_fds = master;
-                puts("\n");
-                if (select(socket_desc + 1, &read_fds, NULL, NULL, NULL) == -1) {
-                    perror("select");
-                    exit(4);
-                }
-                if (FD_ISSET(socket_desc, &read_fds)) {
-                    getServerMessage(socket_desc);
-                }
-                if (FD_ISSET(socket_desc, &read_fds)) {
-                    chat(socket_desc);
-                }
-            }
+            sendJoin(socket_desc, username);
+            chat(stdin, socket_desc);
         }
     } else {
         puts("\n PARAMETER ERROR!");
