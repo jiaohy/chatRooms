@@ -130,7 +130,6 @@ void sendJoin(int sockfd, char *user){
 
 void sendIdle(int sockfd) {
     Header *header;
-    Attribute *attr;
     
     int version = 3;
     int sbcp_type = IDLE;
@@ -138,22 +137,16 @@ void sendIdle(int sockfd) {
     header = malloc(HEADLEN);
     header->vrsn = version>>1;
     header->type = (((version&0x1)<<7)|(sbcp_type&0x7f));
+    header->length = HEADLEN;
     
-    attr = malloc(HEADLEN);
-    attr->type = 0;//Username
-    attr->length = HEADLEN;
-    header->length = HEADLEN + attr->length;
-    
-    void* buf = malloc(header->length);
+    void* buf = malloc(HEADLEN);
     memcpy(buf, header, HEADLEN);
-    void* tmp = buf + HEADLEN;
-    memcpy(tmp, attr, HEADLEN);
+
     
     write(sockfd,(void *) buf, header->length);
     
     free(buf);
     free(header);
-    free(attr);
 }
 
 //Accept user input, and send it to server for broadcasting
@@ -175,7 +168,7 @@ void chat(FILE *fp, int connectionDesc){
     char temp[512];
     
     struct timeval tv;
-    tv.tv_sec = 10;
+    tv.tv_sec = 1;
     tv.tv_usec = 0;
     
     int maxfd, stdineof;
@@ -209,6 +202,7 @@ void chat(FILE *fp, int connectionDesc){
             memcpy(tmp, attr, HEADLEN);
             tmp = tmp + HEADLEN;
             memcpy(tmp, temp, nread + 1);
+            memset(temp, '\0', nread + 1);
             
             write(connectionDesc,(void *) buf, header->length);
             free(buf);
@@ -228,9 +222,9 @@ int main(int argc , char *argv[]){
     
     
         memset(&server, 0, sizeof(server));
-        server.sin_addr.s_addr = inet_addr(addr);
+        server.sin_addr.s_addr = inet_addr(argv[2]);
         server.sin_family = AF_INET;
-        server.sin_port = htons(atoi(port));
+        server.sin_port = htons(atoi(argv[3]));
         
         //Create socket
         socket_desc = socket(AF_INET , SOCK_STREAM , 0);
@@ -245,7 +239,7 @@ int main(int argc , char *argv[]){
             exit(0);
         } else {
             puts("Connected\n");
-            sendJoin(socket_desc, username);
+            sendJoin(socket_desc, argv[1]);
             chat(stdin, socket_desc);
         }
     } else {
