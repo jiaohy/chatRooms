@@ -79,10 +79,12 @@ int getServerMessage(int sockfd){
                 break;
             case 4:
                 printf("-> %s\n", content);
+                printf("111--------------------");
                 break;
             default:
                 break;
         }
+        printf("--------------------");
         free(content);
     }
     free(payload);
@@ -193,6 +195,7 @@ void chat(FILE *fp, int connectionDesc){
                 FD_CLR(fileno(fp), &rset);
                 continue;
             }
+            nread = nread > 512 ? 512 : nread;
             attr->length = htons(HEADLEN + nread);
             int attrLenVal = ntohs(attr->length);
             header->length = htons(HEADLEN + attrLenVal);
@@ -202,15 +205,14 @@ void chat(FILE *fp, int connectionDesc){
             void* tmp = buf + HEADLEN;
             memcpy(tmp, attr, HEADLEN);
             tmp = tmp + HEADLEN;
-            memcpy(tmp, temp, nread + 1);
-            memset(temp, '\0', nread + 1);
-
+            memcpy(tmp, temp, nread);
+            memset(temp, '\0', nread);
             write(connectionDesc,(void *) buf, ntohs(header->length));
             free(buf);
-        } else {
-            sendIdle(connectionDesc);
-            // printf("Timed out.\n"); 
-        }
+        } //else {
+        //     sendIdle(connectionDesc);
+        //     // printf("Timed out.\n"); 
+        // }
     }
     free(header);
     free(attr);
@@ -220,7 +222,6 @@ int main(int argc , char *argv[]){
     if (argc == 4){
         int socket_desc;
         struct sockaddr_in server;
-    
     
         memset(&server, 0, sizeof(server));
         server.sin_addr.s_addr = inet_addr(argv[2]);
