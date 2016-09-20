@@ -52,7 +52,7 @@ int getServerMessage(int sockfd){
         return status;
     }
     
-    payload = malloc(msgLen - HEADLEN);
+    payload = calloc(1, msgLen - HEADLEN + 1);
     if(read(sockfd, payload, msgLen - HEADLEN) == -1) {
         puts("read error!\n");
         return -2;
@@ -63,7 +63,8 @@ int getServerMessage(int sockfd){
         memcpy((Attribute*)&attr, payload + p, HEADLEN);
         int subtype = ntohs(attr.type);
         int subLen = ntohs(attr.length);
-        char* content = malloc(subLen - HEADLEN + 1);
+        printf("%d \n", subLen);
+        char* content = calloc(1, subLen - HEADLEN + 1);
         memcpy(content, payload + p + HEADLEN, subLen - HEADLEN);
         p += subLen;
         // content[subLen - HEADLEN] = '\0';
@@ -207,10 +208,10 @@ void chat(FILE *fp, int connectionDesc){
             memset(temp, '\0', nread);
             write(connectionDesc,(void *) buf, ntohs(header->length));
             free(buf);
-        } //else {
-        //     sendIdle(connectionDesc);
+        } else {
+            sendIdle(connectionDesc);
         //     // printf("Timed out.\n"); 
-        // }
+         }
     }
     free(header);
     free(attr);
