@@ -105,18 +105,18 @@ void sendJoin(int sockfd, char *user){
     header->type = (((version&0x1)<<7)|(sbcp_type&0x7f));
     
     attr = malloc(HEADLEN);
-    attr->type = htons(USERNAME);//Username
-    attr->length = htons(nameLen + HEADLEN);
+    attr->type = htons(USERNAME); //Username
     header->length = htons(HEADLEN + attr->length);
+    attr->length = htons(nameLen + HEADLEN);
     
-    void* buf = malloc(header->length);
+    void* buf = malloc(ntohs(header->length));
     memcpy(buf, header, HEADLEN);
     void* tmp = buf + HEADLEN;
     memcpy(tmp, attr, HEADLEN);
     tmp = tmp + HEADLEN;
     memcpy(tmp, (void*) user, nameLen);
 
-    write(sockfd,(void *) buf, header->length);
+    write(sockfd,(void *) buf, ntohs(header->length));
     
     // Sleep to allow Server to reply
     sleep(1);
