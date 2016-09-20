@@ -24,7 +24,7 @@ int getServerMessage(int sockfd){
         return -2;
     }
     int type = ((int)head.type & 0x7f);
-    int msgLen = head.length;
+    int msgLen = ntohs(head.length);
     
     switch(type) {
         case 3: //FWD
@@ -61,8 +61,8 @@ int getServerMessage(int sockfd){
     while(p < msgLen) {
         Attribute attr;
         memcpy((Attribute*)&attr, payload + p, HEADLEN);
-        int subtype = attr.type;
-        int subLen = attr.length;
+        int subtype = ntohs(attr.type);
+        int subLen = ntohs(attr.length);
         char* content = malloc(subLen - HEADLEN + 1);
         memcpy(content, payload + p + HEADLEN, subLen - HEADLEN);
         p += subLen;
@@ -72,7 +72,7 @@ int getServerMessage(int sockfd){
                 printf("Failed for reason: %s\n", content);
                 break;
             case 2:
-                printf("%s\n", content);
+                printf("username: %s\n", content);
                 break;
             case 3:
                 printf("Number of users online: %s\n", content);
@@ -98,15 +98,16 @@ void sendJoin(int sockfd, char *user){
     int nameLen = (int)strlen(user) + 1;
     int version = 3;
     int sbcp_type = JOIN;
+    // int sbcp_type = 3;
     
     header = malloc(HEADLEN);
     header->vrsn = version>>1;
     header->type = (((version&0x1)<<7)|(sbcp_type&0x7f));
     
     attr = malloc(HEADLEN);
-    attr->type = USERNAME;//Username
-    attr->length = nameLen + HEADLEN;
-    header->length = HEADLEN + attr->length;
+    attr->type = htons(USERNAME);//Username
+    attr->length = htons(nameLen + HEADLEN);
+    header->length = htons(HEADLEN + attr->length);
     
     void* buf = malloc(header->length);
     memcpy(buf, header, HEADLEN);
@@ -137,7 +138,7 @@ void sendIdle(int sockfd) {
     header = malloc(HEADLEN);
     header->vrsn = version>>1;
     header->type = (((version&0x1)<<7)|(sbcp_type&0x7f));
-    header->length = HEADLEN;
+    header->length = htons(HEADLEN);
     
     void* buf = malloc(HEADLEN);
     memcpy(buf, header, HEADLEN);
@@ -163,12 +164,12 @@ void chat(FILE *fp, int connectionDesc){
     header->type = (((version&0x1)<<7)|(sbcp_type&0x7f));
     
     attr = malloc(HEADLEN);
-    attr->type = MESSAGE;
+    attr->type = htons(MESSAGE);
     
     char temp[512];
     
     struct timeval tv;
-    tv.tv_sec = 1;
+    tv.tv_sec = 10;
     tv.tv_usec = 0;
     
     int maxfd, stdineof;
@@ -180,7 +181,7 @@ void chat(FILE *fp, int connectionDesc){
         if (stdineof == 0) FD_SET(fileno(fp), &rset);
         FD_SET(connectionDesc, &rset);
         maxfd = (fileno(fp) > connectionDesc ? fileno(fp) : connectionDesc) + 1;
-        select(maxfd, &rset, NULL, NULL, &tv);
+        select(maxfd, &rset, NULL, NULL, NULL);
         
         if (FD_ISSET(connectionDesc, &rset)) {
             getServerMessage(connectionDesc);
@@ -193,8 +194,8 @@ void chat(FILE *fp, int connectionDesc){
                 FD_CLR(fileno(fp), &rset);
                 continue;
             }
-            attr->length = HEADLEN + nread;
-            header->length = HEADLEN + attr->length;
+            attr->length = htons(HEADLEN + nread);
+            header->length = htons(HEADLEN + attr->length);
             char* buf = malloc(header->length);
             
             memcpy(buf, header, HEADLEN);
@@ -203,12 +204,12 @@ void chat(FILE *fp, int connectionDesc){
             tmp = tmp + HEADLEN;
             memcpy(tmp, temp, nread + 1);
             memset(temp, '\0', nread + 1);
-            
+
             write(connectionDesc,(void *) buf, header->length);
             free(buf);
         } else {
             sendIdle(connectionDesc);
-            printf("Timed out.\n");
+            // printf("Timed out.\n"); 
         }
     }
     free(header);
