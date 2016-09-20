@@ -43,7 +43,7 @@ int getServerMessage(int sockfd){
             printf("Someone is ONLINE: ");
             break;
         case 9: //IDLE
-            printf("Someone has been idle: ");
+            // printf("Someone has been idle: ");
             break;
         default: return -1;
     }
@@ -98,7 +98,6 @@ void sendJoin(int sockfd, char *user){
     int nameLen = (int)strlen(user) + 1;
     int version = 3;
     int sbcp_type = JOIN;
-    // int sbcp_type = 3;
     
     header = malloc(HEADLEN);
     header->vrsn = version>>1;
@@ -106,7 +105,7 @@ void sendJoin(int sockfd, char *user){
     
     attr = malloc(HEADLEN);
     attr->type = htons(USERNAME); //Username
-    header->length = htons(HEADLEN + attr->length);
+    header->length = htons(HEADLEN + HEADLEN + nameLen);
     attr->length = htons(nameLen + HEADLEN);
     
     void* buf = malloc(ntohs(header->length));
@@ -144,7 +143,7 @@ void sendIdle(int sockfd) {
     memcpy(buf, header, HEADLEN);
 
     
-    write(sockfd,(void *) buf, header->length);
+    write(sockfd,(void *) buf, ntohs(header->length));
     
     free(buf);
     free(header);
@@ -195,8 +194,9 @@ void chat(FILE *fp, int connectionDesc){
                 continue;
             }
             attr->length = htons(HEADLEN + nread);
-            header->length = htons(HEADLEN + attr->length);
-            char* buf = malloc(header->length);
+            int attrLenVal = ntohs(attr->length);
+            header->length = htons(HEADLEN + attrLenVal);
+            char* buf = malloc(ntohs(header->length));
             
             memcpy(buf, header, HEADLEN);
             void* tmp = buf + HEADLEN;
@@ -205,7 +205,7 @@ void chat(FILE *fp, int connectionDesc){
             memcpy(tmp, temp, nread + 1);
             memset(temp, '\0', nread + 1);
 
-            write(connectionDesc,(void *) buf, header->length);
+            write(connectionDesc,(void *) buf, ntohs(header->length));
             free(buf);
         } else {
             sendIdle(connectionDesc);
