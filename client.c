@@ -58,7 +58,7 @@ int getServerMessage(int sockfd){
         return -2;
     }
     int p = 0;
-    while(p < msgLen) {
+    while(p < msgLen - HEADLEN) {
         Attribute attr;
         memcpy((Attribute*)&attr, payload + p, HEADLEN);
         int subtype = ntohs(attr.type);
@@ -66,7 +66,7 @@ int getServerMessage(int sockfd){
         char* content = malloc(subLen - HEADLEN + 1);
         memcpy(content, payload + p + HEADLEN, subLen - HEADLEN);
         p += subLen;
-        content[subLen - HEADLEN] = '\0';
+        // content[subLen - HEADLEN] = '\0';
         switch(subtype) {
             case 1:
                 printf("Failed for reason: %s\n", content);
@@ -79,12 +79,10 @@ int getServerMessage(int sockfd){
                 break;
             case 4:
                 printf("-> %s\n", content);
-                printf("111--------------------");
                 break;
             default:
                 break;
         }
-        printf("--------------------");
         free(content);
     }
     free(payload);
