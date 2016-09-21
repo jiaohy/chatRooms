@@ -25,12 +25,17 @@ int getServerMessage(int sockfd){
     }
     int type = ((int)head.type & 0x7f);
     int msgLen = ntohs(head.length);
-    
     switch(type) {
+        case 2: //JOIN
+            puts("join request from:");
+            break;
+        case 4: //SEND
+            puts("send msg:");
+            break;
         case 3: //FWD
             break;
         case 5: //NAK
-            printf("Sorry.\n");
+            printf("Sorry. You are not allowed to join.\n");
             status = 1;
             break;
         case 6: //OFFLINE
@@ -43,12 +48,13 @@ int getServerMessage(int sockfd){
             printf("Someone is ONLINE: ");
             break;
         case 9: //IDLE
-            // printf("Someone has been idle: ");
+            printf("Someone has been idle: ");
             break;
         default: return -1;
     }
     
     if (msgLen == HEADLEN) {
+        puts("null packet!\n");
         return status;
     }
     
@@ -58,14 +64,24 @@ int getServerMessage(int sockfd){
         return -2;
     }
     int p = 0;
+    // printf("payload : %d\n", msgLen - HEADLEN + 1);
+    // printf("debug 1\n");
     while(p < msgLen - HEADLEN) {
+        // printf("debug 2\n");
         Attribute attr;
         memcpy((Attribute*)&attr, payload + p, HEADLEN);
+        // printf("debug 3\n");
+
         int subtype = ntohs(attr.type);
         int subLen = ntohs(attr.length);
-        printf("%d \n", subLen);
+
+        // printf("len: %d. ", subLen);
+        // printf("debug 4\n");
+
         char* content = calloc(1, subLen - HEADLEN + 1);
         memcpy(content, payload + p + HEADLEN, subLen - HEADLEN);
+        // printf("debug 5\n");
+
         p += subLen;
         // content[subLen - HEADLEN] = '\0';
         switch(subtype) {
@@ -73,7 +89,7 @@ int getServerMessage(int sockfd){
                 printf("Failed for reason: %s\n", content);
                 break;
             case 2:
-                printf("username: %s\n", content);
+                printf(" %s\n", content);
                 break;
             case 3:
                 printf("Number of users online: %s\n", content);
@@ -84,7 +100,12 @@ int getServerMessage(int sockfd){
             default:
                 break;
         }
+        // printf("debug 6\n");
+
         free(content);
+        // printf("debug 7\n");
+
+        // printf("pos: %d.\n", p);
     }
     free(payload);
     return status;
@@ -115,7 +136,7 @@ void sendJoin(int sockfd, char *user){
     memcpy(tmp, attr, HEADLEN);
     tmp = tmp + HEADLEN;
     memcpy(tmp, (void*) user, nameLen);
-
+    // printf("%d\n", ntohs(header->length));
     write(sockfd,(void *) buf, ntohs(header->length));
     
     // Sleep to allow Server to reply
@@ -143,8 +164,8 @@ void sendIdle(int sockfd) {
     void* buf = malloc(HEADLEN);
     memcpy(buf, header, HEADLEN);
 
-    
-    write(sockfd,(void *) buf, ntohs(header->length));
+    // printf("debug 7\n");
+    write(sockfd,(void *) buf, HEADLEN);
     
     free(buf);
     free(header);
@@ -165,53 +186,62 @@ void chat(FILE *fp, int connectionDesc){
     
     attr = malloc(HEADLEN);
     attr->type = htons(MESSAGE);
+
+    struct timeval tv;
     
     char temp[512];
     
-    struct timeval tv;
-    tv.tv_sec = 10;
-    tv.tv_usec = 0;
-    
     int maxfd, stdineof;
     fd_set rset;
-    FD_ZERO(&rset);
     stdineof = 0;
+    FD_ZERO(&rset);   // in for(;;) ?
 
     for (;;) {
+        tv.tv_sec = 5;
+        tv.tv_usec = 0;
+        FD_ZERO(&rset);
+
         if (stdineof == 0) FD_SET(fileno(fp), &rset);
         FD_SET(connectionDesc, &rset);
         maxfd = (fileno(fp) > connectionDesc ? fileno(fp) : connectionDesc) + 1;
-        select(maxfd, &rset, NULL, NULL, NULL);
+        int ret = select(maxfd, &rset, NULL, NULL, &tv);
         
+        //be able to read from server
         if (FD_ISSET(connectionDesc, &rset)) {
             getServerMessage(connectionDesc);
         }
-        
-        if (FD_ISSET(fileno(fp), &rset)) {
-            if ((nread = (int)read(fileno(fp), temp, MAXLINE)) == 0) {
-                stdineof = 1;
-                shutdown(connectionDesc, SHUT_WR);
-                FD_CLR(fileno(fp), &rset);
-                continue;
-            }
-            nread = nread > 512 ? 512 : nread;
-            attr->length = htons(HEADLEN + nread);
-            int attrLenVal = ntohs(attr->length);
-            header->length = htons(HEADLEN + attrLenVal);
-            char* buf = malloc(ntohs(header->length));
-            
-            memcpy(buf, header, HEADLEN);
-            void* tmp = buf + HEADLEN;
-            memcpy(tmp, attr, HEADLEN);
-            tmp = tmp + HEADLEN;
-            memcpy(tmp, temp, nread);
-            memset(temp, '\0', nread);
-            write(connectionDesc,(void *) buf, ntohs(header->length));
-            free(buf);
-        } else {
+
+        if (ret == -1) {
+            perror("select error");
+        } else if (ret > 0) {
+            //listen on keyboard available
+            if (FD_ISSET(fileno(fp), &rset)) {
+                if ((nread = (int)read(fileno(fp), temp, MAXLINE)) == 0) {
+                    stdineof = 1;
+                    shutdown(connectionDesc, SHUT_WR);
+                    FD_CLR(fileno(fp), &rset);
+                    continue;
+                }
+    
+                nread = nread > 512 ? 512 : nread;
+                attr->length = htons(HEADLEN + nread);
+                int attrLenVal = ntohs(attr->length);
+                header->length = htons(HEADLEN + attrLenVal);
+                char* buf = malloc(ntohs(header->length));
+                
+                memcpy(buf, header, HEADLEN);
+                void* tmp = buf + HEADLEN;
+                memcpy(tmp, attr, HEADLEN);
+                tmp = tmp + HEADLEN;
+                memcpy(tmp, temp, nread);
+                memset(temp, '\0', nread);
+                write(connectionDesc,(void *) buf, ntohs(header->length));
+                free(buf);
+            } 
+        } else if (ret == 0){
             sendIdle(connectionDesc);
-        //     // printf("Timed out.\n"); 
-         }
+            // puts("timeout\n");
+        }
     }
     free(header);
     free(attr);
