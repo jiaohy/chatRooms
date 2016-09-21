@@ -50,5 +50,10 @@ typedef struct MessageSBCP
     unsigned char* payload;
 }Msg;
 
+typedef struct clientcount
+{
+    uint16_t client;
+}Cnt;
+
 
 #endif /* SBCP_h */

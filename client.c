@@ -81,6 +81,9 @@ int getServerMessage(int sockfd){
         char* content = calloc(1, subLen - HEADLEN + 1);
         memcpy(content, payload + p + HEADLEN, subLen - HEADLEN);
         // printf("debug 5\n");
+        Cnt *cnt = malloc(sizeof(Cnt));
+        memcpy(cnt, content, sizeof(Cnt));
+        int clientcount = ntohs(cnt->client);
 
         p += subLen;
         // content[subLen - HEADLEN] = '\0';
@@ -92,7 +95,7 @@ int getServerMessage(int sockfd){
                 printf(" %s\n", content);
                 break;
             case 3:
-                printf("Number of users online: %s\n", content);
+                printf("Number of users online: %d\n", clientcount);
                 break;
             case 4:
                 printf("-> %s\n", content);
