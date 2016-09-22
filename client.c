@@ -12,6 +12,36 @@
 #define HEADLEN 4
 #define MAXLINE 4096
 
+int setupClientSocket(char *host, char* port) {  
+    struct addrinfo addrCriteria;  
+    memset(&addrCriteria, 0, sizeof(addrCriteria));  
+    addrCriteria.ai_family = AF_UNSPEC;  
+    addrCriteria.ai_socktype = SOCK_STREAM;  
+    addrCriteria.ai_protocol = IPPROTO_TCP;  
+      
+    struct addrinfo *server_addr;   
+    int retVal = getaddrinfo(host, port, &addrCriteria, &server_addr);  
+    if(retVal != 0)  
+        return -1;  
+    int sock=-1;  
+    struct addrinfo *addr = server_addr;  
+    while(addr != NULL)  
+    {    
+        sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);  
+        if(sock<0)  
+            continue;  
+        if(connect(sock, addr->ai_addr, addr->ai_addrlen) == 0)  
+        {  
+            break;  
+        }  
+        close(sock);  
+        sock = -1;  
+        addr = addr->ai_next;  
+    }  
+    freeaddrinfo(server_addr);  
+    return sock;  
+} 
+
 int getServerMessage(int sockfd){
     
     Header head;
@@ -253,22 +283,23 @@ void chat(FILE *fp, int connectionDesc){
 int main(int argc , char *argv[]){
     if (argc == 4){
         int socket_desc;
-        struct sockaddr_in server;
+        // struct sockaddr_in server;
     
-        memset(&server, 0, sizeof(server));
-        server.sin_addr.s_addr = inet_addr(argv[2]);
-        server.sin_family = AF_INET;
-        server.sin_port = htons(atoi(argv[3]));
+        // memset(&server, 0, sizeof(server));
+        // server.sin_addr.s_addr = inet_addr(argv[2]);
+        // server.sin_family = AF_INET;
+        // server.sin_port = htons(atoi(argv[3]));
         
         //Create socket
-        socket_desc = socket(AF_INET , SOCK_STREAM , 0);
+        // socket_desc = socket(AF_INET , SOCK_STREAM , 0);
+        socket_desc = setupClientSocket(argv[2], argv[3]); 
         if (socket_desc == -1){
             printf("Could not create socket");
             exit(0);
         }
         
         //Connect to remote server
-        if (connect(socket_desc , (struct sockaddr *)&server , sizeof(server)) < 0){
+        if (socket_desc < 0){
             puts("connect error");
             exit(0);
         } else {
