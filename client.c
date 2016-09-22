@@ -9,6 +9,7 @@
 #include <sys/time.h>
 #include <arpa/inet.h> //inet_addr
 #include"SBCP.h"
+#include <sys/timerfd.h>
 #define HEADLEN 4
 #define MAXLINE 4096
 
@@ -220,61 +221,80 @@ void chat(FILE *fp, int connectionDesc){
     attr = malloc(HEADLEN);
     attr->type = htons(MESSAGE);
 
-    struct timeval tv;
+    int timerfd = timerfd_create(CLOCK_REALTIME, 0);
+    struct itimerspec new_value, curr_value;
+    uint64_t expTime;
+
+    //timer
+    new_value.it_value.tv_sec = 10;
+    new_value.it_value.tv_nsec = 0;
+    new_value.it_interval.tv_sec = 0;
+    new_value.it_interval.tv_nsec = 0;
+
     
     char temp[512];
     
     int maxfd, stdineof;
     fd_set rset;
     stdineof = 0;
-    FD_ZERO(&rset);   // in for(;;) ?
+    FD_ZERO(&rset);   
+    if (timerfd_settime(timerfd, 0, &new_value, NULL) == -1)
+        perror("timerfd_settime");
 
     for (;;) {
-        tv.tv_sec = 5;
-        tv.tv_usec = 0;
-        FD_ZERO(&rset);
-
         if (stdineof == 0) FD_SET(fileno(fp), &rset);
         FD_SET(connectionDesc, &rset);
-        maxfd = (fileno(fp) > connectionDesc ? fileno(fp) : connectionDesc) + 1;
-        int ret = select(maxfd, &rset, NULL, NULL, &tv);
+        FD_SET(timerfd, &rset);
+        maxfd = fileno(fp) > connectionDesc ? fileno(fp) : connectionDesc;
+        maxfd = (maxfd > timerfd ? maxfd : timerfd) + 1;
+        select(maxfd, &rset, NULL, NULL, NULL);
         
         //be able to read from server
         if (FD_ISSET(connectionDesc, &rset)) {
+        // printf("recieve mess\n");
             getServerMessage(connectionDesc);
         }
 
-        if (ret == -1) {
-            perror("select error");
-        } else if (ret > 0) {
-            //listen on keyboard available
-            if (FD_ISSET(fileno(fp), &rset)) {
-                if ((nread = (int)read(fileno(fp), temp, MAXLINE)) == 0) {
-                    stdineof = 1;
-                    shutdown(connectionDesc, SHUT_WR);
-                    FD_CLR(fileno(fp), &rset);
-                    continue;
-                }
-    
-                nread = nread > 512 ? 512 : nread;
-                attr->length = htons(HEADLEN + nread);
-                int attrLenVal = ntohs(attr->length);
-                header->length = htons(HEADLEN + attrLenVal);
-                char* buf = malloc(ntohs(header->length));
-                
-                memcpy(buf, header, HEADLEN);
-                void* tmp = buf + HEADLEN;
-                memcpy(tmp, attr, HEADLEN);
-                tmp = tmp + HEADLEN;
-                memcpy(tmp, temp, nread);
-                memset(temp, '\0', nread);
-                write(connectionDesc,(void *) buf, ntohs(header->length));
-                free(buf);
-            } 
-        } else if (ret == 0){
+        //listen on keyboard available
+        if (FD_ISSET(fileno(fp), &rset)) {
+            if ((nread = (int)read(fileno(fp), temp, MAXLINE)) == 0) {
+                stdineof = 1;
+                shutdown(connectionDesc, SHUT_WR);
+                FD_CLR(fileno(fp), &rset);
+                continue;
+            }
+
+            //reset timer
+            new_value.it_value.tv_sec = 10;
+            if (timerfd_settime(timerfd, 0, &new_value, NULL) == -1)
+                perror("timerfd_settime");
+
+            nread = nread > 512 ? 512 : nread;
+            attr->length = htons(HEADLEN + nread);
+            int attrLenVal = ntohs(attr->length);
+            header->length = htons(HEADLEN + attrLenVal);
+            char* buf = malloc(ntohs(header->length));
+            
+            memcpy(buf, header, HEADLEN);
+            void* tmp = buf + HEADLEN;
+            memcpy(tmp, attr, HEADLEN);
+            tmp = tmp + HEADLEN;
+            memcpy(tmp, temp, nread);
+            memset(temp, '\0', nread);
+            write(connectionDesc,(void *) buf, ntohs(header->length));
+            free(buf);
+        } 
+
+    //If timer out, set IDLE
+        if(FD_ISSET(timerfd, &rset)){
+        // printf("debug 1\n");
+            read(timerfd, &expTime, sizeof(uint64_t));
+            new_value.it_value.tv_sec = 0;
+            if (timerfd_settime(timerfd, 0, &new_value, NULL) == -1)
+                perror("timerfd_settime");
             sendIdle(connectionDesc);
-            // puts("timeout\n");
         }
+        
     }
     free(header);
     free(attr);
